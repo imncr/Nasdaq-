@@ -1,0 +1,207 @@
+---
+title: "Final Project Report"
+author: "Jake"
+date: "November 28, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Motivation and Application
+
+Our choice of project was motivated by an example problem from class and a homework problem that we were assigned. The example problem involved fitting a logistic regression model to historical daily S&P 500 stock index data with the goal of predicting whether the stock market would go up or down. The homework problem was similar, but it involved predicting whether the S&P 500 would go up or down on a weekly rather than daily basis. Most of the potential predictors for both of these models were percentage returns of several previous days or weeks. We found these problems interesting and so we decided to extend the concept. We conducted a statistical analysis wherein we utilized several supervised learning methods to predict weekly Nasdaq Composite index returns. We used regression methods to predict weekly percentage returns and classification methods to predict whether the Nasdaq would go up or down over a given week. The set of predictors included the percentage returns and percent changes in trading volume from the previous three weeks. 
+
+This analysis could be applicable to stock traders who buy and sell stocks on a short-term basis. If the statistical models were able to accurately predict the return and/or direction of the Nasdaq in the succeeding week, then a trader could buy or sell a Nasdaq Composite Index exchange-traded fund (ETF) based on the prediction. For example, if the models were run immediately after market close on a Friday and they predicted the Nasdaq to have a positive return over the next week, then a trader could purchase the Nasdaq ETF in after-hours. Alternatively, if the models predicted a negative return over the subsequent week, then a trader could sell the Nasdaq ETF in after-hours. For this to be a profitable strategy, the ETF would have to be purchased or sold at a price very close to or more favorable than the Friday closing price.
+
+## Data
+
+Weekly Nasdaq Composite Index data was downloaded from Yahoo! Finance for the time period from 11/26/2001 to 11/25/2019. Each row in the dataset contained prices and trading volume for a given week. The relevant columns for our analysis were 'Close', which contained the weekly closing price, and 'Volume', which contained the weekly trading volume. Several new columns had to be derived before we could apply statistical learning methods. A new column named 'Return' was created and populated with the weekly close-to-close-price percentage returns. Another column called 'Vol_change' was created and populated with the week-to-week percent change in trading volume. Also, a 'Direction' binary variable was derived that took the value 'Down' if the 'Return' was less than 0 and the value 'Up' otherwise. Finally, lag columns were added that contained the percentage returns and volume changes for the three preceding weeks. Once the data preparation was completed (all of which was done in R), the finalized data was written to a CSV file.
+
+The CSV file is read into a data frame.
+
+```{r}
+nasdaq = read.csv('Nasdaq Prices Final.csv')
+head(nasdaq)
+attach(nasdaq)
+```
+
+The relevant variables for this analysis are:
+
+  Return - Percentage return for the week (computed from closing prices for this week and the previous    week)
+
+  Direction - A categorical variable indicating whether the Nasdaq went up or down on a given week (i.e.   whether the return was positive or negative)
+
+  Lag1 - Percentage return for previous week
+
+  Lag2 - Percentage return for two weeks prior
+
+  Lag3 - Percentage return for three weeks prior
+
+  Vol_Lag1 - Percentage change in volume for previous week
+
+  Vol_Lag2 - Percentage change in volume for two weeks prior
+
+  Vol_Lag3 - Percentage change in volume for three weeks prior
+
+
+## Analysis
+
+
+
+### Linear Regression
+
+
+I start by creating several scatterplot matrices to examine the associations between the variables.
+
+```{r}
+pairs(~Return+Lag1+Lag2+Lag3+Vol_Lag1+Vol_Lag2+Vol_Lag3)
+pairs(~Return+Lag1+Lag2+Lag3)
+pairs(~Return+Vol_Lag1+Vol_Lag2+Vol_Lag3)
+```
+
+The scatterplot matrices do not show any clear relationships between Return and the other variables. They do show potential quadratic relationships between Vol_Lag1 and Vol_Lag2 as well as Vol_Lag2 and Vol_Lag3.
+
+I fit a linear model to the full dataset with Return as the response and the Lag variables along with some interaction terms as predictors.
+
+```{r}
+linear_fit1 = lm(Return~Lag1+Lag2+Lag3+Vol_Lag1+Vol_Lag2+Vol_Lag3+Lag1:Vol_Lag1+Lag1:Lag2+Vol_Lag1:Vol_Lag2,data=nasdaq)
+summary(linear_fit1)
+summary(linear_fit1)$sigma/sd(nasdaq$Return)
+```
+
+The F-test indicates that the model is statistically significant overall. The predictors Lag3, Vol_Lag1, Vol_Lag2, Vol_lag3, and Lag1:Lag2 are statistically significant. The adjusted R-squared value is very low -- only ~1.8% of the variance in the response is explained by the predictors after accounting for model size. Also, the residual standard error (RSE) is 2.63, meaning that the average error in predicted return is 2.63. This is ~99% of the Return standard deviation -- a large error. The adjusted R-squared and RSE both indicate a poor fitting model.
+
+
+I fit a linear model with only the statistically significant predictors. Also, I perform a nested F-test to compare the full model with the submodel.
+
+```{r}
+linear_fit2 = lm(Return~Lag3+Vol_Lag1+Vol_Lag2+Vol_Lag3+Lag1:Lag2,data=nasdaq)
+summary(linear_fit2)
+anova(linear_fit2,linear_fit1)
+```
+
+The submodel has the same RSE as the full model and a slightly higher adjusted R-squared. The nested F-test indicates that the full model is not superior to the submodel.
+
+
+Next, I perform backward elimination and forward addition with AIC as the information criteria.
+
+```{r}
+m_empty = lm(Return~1, data=nasdaq)
+m_full = lm(Return~Lag1+Lag2+Lag3+Vol_Lag1+Vol_Lag2+Vol_Lag3+Lag1:Vol_Lag1+Lag1:Lag2+Vol_Lag1:Vol_Lag2,data=nasdaq)
+
+#Backward Elimination
+m_bwd = step(m_full, scope = list(lower = m_empty$formula, upper = m_full$formula), direction = "backward", k = 2, trace = 0)
+m_bwd$coefficients
+
+#Forward Addition
+m_fwd = step(m_empty, scope = list(lower = m_empty$formula, upper = m_full$formula), direction = "forward", k = 2, trace = 0)
+m_fwd$coefficients
+```
+
+Backward elimination results in a model with many predictors while forward addition results in a model with only the intercept (mean of the response).
+
+For the final linear model, I choose linear_fit2 because all of the predictors are statistically significant. 
+
+#### Model Diagnostics
+
+I now perform model diagnostics to check the assumptions of linear regression.
+
+```{r}
+par(mfrow=c(2,2))
+plot(linear_fit2)
+library(faraway)
+vif(linear_fit2)
+```
+
+The assumptions about the model errors appear to be valid with the linear_fit2 model. Also, there are no multicollinearity problems as the VIFs are all near one.
+
+#### Estimating the test error
+
+
+I perform 10-fold cross-validation 50 times on linear_fit2. I then compute the mean and standard deviation of the 50 root mean squared errors.
+
+```{r}
+library(boot)
+linear_fit2 = glm(Return~Lag3+Vol_Lag1+Vol_Lag2+Vol_Lag3+Lag1:Lag2,data=nasdaq)  #Fit linear_fit2 using glm() function so that I can use the cv.glm() function on it
+cv_error = rep(0,50)
+set.seed(2)
+for (i in 1:50){
+  cv_error[i] = cv.glm(nasdaq, linear_fit2, K = 10)$delta[1]
+}
+rmse = sqrt(cv_error)  #Convert to root mean squared error (RMSE)
+mean_error = mean(rmse)
+sd_error = sd(rmse)
+
+mean_error  #Mean RMSE
+sd_error   #Standard deviation of RMSEs
+mean_error/sd(nasdaq$Return)
+```
+
+The mean RMSE is 2.65 and the standard deviation is 0.006. The mean RMSE is ~99.8% of the Return standard deviation.
+
+
+I also compute RMSE for a test set containing a random sample of 200 observations.
+
+```{r}
+set.seed(2)
+test = sample(1:nrow(nasdaq), 200)
+train = nasdaq[-test,]
+linear_fit2 = lm(Return~Lag3+Vol_Lag1+Vol_Lag2+Vol_Lag3+Lag1:Lag2,data=train)
+pred_test = predict(linear_fit2, newdata=nasdaq[test,], type='response')
+rmse_test = sqrt(mean((nasdaq[test,'Return']-pred_test)^2))
+rmse_test  #Test set RMSE
+rmse_test/sd(nasdaq$Return)
+```
+
+The RMSE is ~2.53, which is ~95% of the Return standard deviation. This error and the mean 10-fold CV error are both very large and this suggests that the model is not useful.
+
+Finally, to further gauge the utility of the model, I compute the RMSE when the mean training data return is predicted for all the test set observations.
+
+```{r}
+mean_pred = rep(mean(train[,'Return']), 200)
+rmse_test0 = sqrt(mean((nasdaq[test,'Return']-mean_pred)^2))
+rmse_test0
+```
+
+The RMSE is ~2.55. This means that the linear regression model's predictive ability is barely better than simply using the mean training return as the predicted response.
+
+
+### Regression Tree
+
+I fit a regression tree to the training data and plot the tree.
+
+```{r}
+library(tree)
+regression_tree = tree(Return~Lag1+Lag2+Lag3+Vol_Lag1+Vol_Lag2+Vol_Lag3, data=train)
+summary(regression_tree)
+plot(regression_tree)
+text(regression_tree,pretty=0)
+```
+
+The tree uses the predictors Lag1, Lag3, and the three Vol_Lags. It has 8 terminal nodes and its training mean squared error (MSE) is 6.5.
+
+
+#### Determining the best tree size and estimating the test error
+
+I perform 10-fold CV 50 times on the regression tree and I extract the best tree size (the size corresponding to the lowest CV error) on each iteration. I then compute the mean and standard deviation of the 50 optimal tree sizes.
+
+```{r}
+best_sizes = rep(0,50)
+set.seed(2)
+for (i in 1:50){
+  cv_tree = cv.tree(regression_tree,FUN=prune.tree,K=10)
+  best_sizes[i] = cv_tree$size[which.min(cv_tree$dev)]
+}
+
+best_size_mean = mean(best_sizes)
+best_size_sd = sd(best_sizes)
+best_size_mean  #Mean optimal tree size
+best_size_sd   #Standard deviation of optimal tree sizes
+```
+
+The mean of the 50 optimal tree sizes is 1 and the standard deviation is 0, which means that the best tree size was 1 for all 50 iterations of 10-fold CV.
+
+The tree with 1 terminal node means that it will always predict the mean training return, no matter the test observation. So the test set RMSE for this tree will be ~2.55, the same as the previous RMSE computation. The regression tree is therefore not valuable for predicting weekly Nasdaq returns.
+
